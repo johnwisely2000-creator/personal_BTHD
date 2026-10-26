@@ -535,6 +535,7 @@ body.cursor-on .cursor{display:block}
       <div class="glass"><b id="cdS">00</b><span>Seconds</span></div>
     </div>
     <p class="small">It opens at midnight. Stay with us until then.</p>
+    <p class="small">Tap anywhere to play our songs ♪</p>
   </div>
   <div class="bday-burst" id="bdayBurst">IT'S YOUR BIRTHDAY! 🎉</div>
 </section>
@@ -1031,8 +1032,21 @@ const Music = {
   start() {
     if (this.playing) return; this.playing = true; Sound.on = true; updateMusicBtn();
     if (this.missing) return this.startSynth();
-    this.el.volume = 0;
-    this.el.play().then(() => this.fade(this.ducked ? .1 : this.base, 2500)).catch(() => { this.missing = true; this.startSynth(); });
+    this.el.volume = 0; this.tryPlay();
+  },
+  // Browsers only allow sound after a tap. If play() is blocked, the songs are NOT missing:
+  // wait for her next tap/key and try again (never fall back to the music box for this).
+  tryPlay() {
+    this.el.play().then(() => { this.blocked = false; this.fade(this.ducked ? .1 : this.base, 2500); })
+      .catch(err => {
+        if (err && err.name === "NotAllowedError") { this.blocked = true; return; }
+        if (this.el.error) return;   // the "error" listener already skips to the next song
+        this.blocked = true;
+      });
+  },
+  resume() {
+    Sound.ac();
+    if (this.playing && !this.synth && !this.missing && this.el.paused) this.tryPlay();
   },
   stop() { this.playing = false; this.el.pause(); this.stopSynth(); updateMusicBtn(); },
   fade(to, ms) {
@@ -1055,7 +1069,16 @@ const Music = {
   stopSynth() { this.synth = false; clearTimeout(this.synthTimer); if (this.synthGain) { try { this.synthGain.gain.linearRampToValueAtTime(0, Sound.ctx.currentTime + .4); } catch (e) {} } }
 };
 function updateMusicBtn() { const b = $("#musicBtn"); b.classList.toggle("on", Music.playing); b.setAttribute("aria-pressed", Music.playing); }
-$("#musicBtn").addEventListener("click", () => { if (Music.playing) { Music.stop(); Sound.on = false; } else { Sound.on = true; Music.start(); } });
+$("#musicBtn").addEventListener("click", e => {
+  e.stopPropagation();
+  if (Music.playing && Music.el.paused && !Music.synth && !Music.missing) return Music.resume();   // was blocked: this tap starts it
+  if (Music.playing) { Music.stop(); Sound.on = false; Music.userOff = true; } else { Sound.on = true; Music.userOff = false; Music.start(); }
+});
+// Music begins with her very first tap or key press anywhere (countdown, loader, gate…), and any blocked play retries on the next one
+["pointerdown", "touchend", "keydown", "click"].forEach(t => addEventListener(t, e => {
+  if (e.target && e.target.closest && e.target.closest("#musicBtn")) return;
+  if (!Music.playing && !Music.userOff) Music.start(); else Music.resume();
+}, { passive: true }));
 
 /* =====================================================================
    ASSETS: photos with gradient placeholders if a file is missing
@@ -1340,7 +1363,7 @@ function unlock() {
   Sound.ac(); Sound.chime(); vibrate([80, 60, 160]); Music.start();
   const r = $("#lock").getBoundingClientRect(); FX.burst(r.left + r.width / 2, r.top + r.height / 2, { n: 120, speed: 9, colors: [PAL.gold, PAL.champagne, PAL.crimson] }); FX.hearts(r.left + r.width / 2, r.top + r.height / 2, 14);
   try { if (typeof DeviceMotionEvent !== "undefined" && DeviceMotionEvent.requestPermission) DeviceMotionEvent.requestPermission().catch(() => {}); if (typeof DeviceOrientationEvent !== "undefined" && DeviceOrientationEvent.requestPermission) DeviceOrientationEvent.requestPermission().catch(() => {}); } catch (e) {}
-  $("#musicBtn").classList.add("show"); $("#skip").classList.add("show"); $("#cornerHeart").classList.add("show");
+  $("#skip").classList.add("show"); $("#cornerHeart").classList.add("show");
   if (isBirthdayToday() || PREVIEW) $("#queen").classList.add("show");
   setTimeout(() => go("envelope"), 1700);
 }
@@ -2061,7 +2084,7 @@ addEventListener("resize", resizeAll);
   $("#queenName").textContent = CONFIG.firstName; $("#envTo").textContent = `To ${CONFIG.herName}`; $("#envHi").textContent = `Our dearest ${CONFIG.firstName},`;
   $("#sigTxt").textContent = CONFIG.herName; $("#cAge").textContent = CONFIG.age; document.title = `Happy ${ordinal(CONFIG.age)} Birthday, ${CONFIG.firstName}`;
   $("#lsigTxt").textContent = `— Forever yours, ${CONFIG.fromNames}`;
-  Music.init(); S.voice.init(); BG.resize(); FX.resize(); FX.buildShapes();
+  Music.init(); S.voice.init(); $("#musicBtn").classList.add("show"); BG.resize(); FX.resize(); FX.buildShapes();
   (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => FX.buildShapes());
   requestAnimationFrame(loop);
   if (!PREVIEW && Date.now() < bdayStart) go("countdown"); else go("loader");
