@@ -133,6 +133,11 @@ img{max-width:100%}
 .cursor{position:fixed;left:0;top:0;z-index:100;width:20px;height:20px;margin:-10px 0 0 -10px;pointer-events:none;display:none}
 .cursor svg{width:100%;height:100%;fill:var(--crimson);filter:drop-shadow(0 0 6px rgba(255,42,74,.9))}
 body.cursor-on .cursor{display:block}
+.opener{position:fixed;inset:0;z-index:95;display:none;flex-direction:column;align-items:center;justify-content:center;gap:18px;text-align:center;padding:24px;cursor:pointer;
+  background:radial-gradient(ellipse at 50% 40%,rgba(43,10,16,.96),rgba(5,2,3,.98) 70%);transition:opacity .8s}
+.opener.show{display:flex}
+.opener.hide{opacity:0;pointer-events:none}
+.opener svg{width:clamp(90px,26vw,130px);fill:var(--crimson);filter:drop-shadow(0 0 22px rgba(224,16,47,.8));animation:beat 1.1s infinite}
 .toast{position:fixed;left:50%;top:50%;z-index:90;transform:translate(-50%,-50%) scale(.85);opacity:0;pointer-events:none;transition:.5s;padding:22px 26px;max-width:min(88vw,460px);text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
 .toast p{margin:0;font:italic 400 clamp(20px,5vw,28px)/1.35 var(--f-letter);color:var(--champagne)}
@@ -523,6 +528,12 @@ body.cursor-on .cursor{display:block}
 <button class="music" id="musicBtn" aria-label="Toggle music" aria-pressed="false"><svg viewBox="0 0 24 24"><use href="#hp"/></svg><span class="eq"><i></i><i></i><i></i></span></button>
 <button class="corner-heart" id="cornerHeart" aria-label="A little secret"><svg viewBox="0 0 24 24"><use href="#hp"/></svg></button>
 <div class="toast glass" id="toast" role="status"><p id="toastTxt"></p></div>
+<!-- Shown only when the browser won't let music start by itself: one tap opens the surprise with sound -->
+<div class="opener" id="opener" role="button" tabindex="0" aria-label="Open your surprise">
+  <svg viewBox="0 0 24 24" aria-hidden="true"><use href="#hp"/></svg>
+  <p class="script lg" id="openerTxt">A surprise for you</p>
+  <p class="eyebrow">Tap anywhere to open ♪</p>
+</div>
 
 <!-- ======================= SCENE 0a: MIDNIGHT COUNTDOWN ======================= -->
 <section class="scene" id="s-countdown" data-enter="in-zoom">
@@ -1037,9 +1048,9 @@ const Music = {
   // Browsers only allow sound after a tap. If play() is blocked, the songs are NOT missing:
   // wait for her next tap/key and try again (never fall back to the music box for this).
   tryPlay() {
-    this.el.play().then(() => { this.blocked = false; this.fade(this.ducked ? .1 : this.base, 2500); })
+    this.el.play().then(() => { this.blocked = false; showOpener(false); this.fade(this.ducked ? .1 : this.base, 2500); })
       .catch(err => {
-        if (err && err.name === "NotAllowedError") { this.blocked = true; return; }
+        if (err && err.name === "NotAllowedError") { this.blocked = true; showOpener(true); return; }
         if (this.el.error) return;   // the "error" listener already skips to the next song
         this.blocked = true;
       });
@@ -1068,6 +1079,12 @@ const Music = {
   },
   stopSynth() { this.synth = false; clearTimeout(this.synthTimer); if (this.synthGain) { try { this.synthGain.gain.linearRampToValueAtTime(0, Sound.ctx.currentTime + .4); } catch (e) {} } }
 };
+function showOpener(on) {
+  const o = $("#opener"); if (!o) return;
+  if (on) { $("#openerTxt").textContent = `A surprise for you, ${CONFIG.firstName}`; o.classList.remove("hide"); o.classList.add("show"); }
+  else if (o.classList.contains("show")) { o.classList.add("hide"); setTimeout(() => o.classList.remove("show", "hide"), 800); }
+}
+$("#opener").addEventListener("click", () => { Music.resume(); showOpener(false); });
 function updateMusicBtn() { const b = $("#musicBtn"); b.classList.toggle("on", Music.playing); b.setAttribute("aria-pressed", Music.playing); }
 $("#musicBtn").addEventListener("click", e => {
   e.stopPropagation();
@@ -2088,6 +2105,7 @@ addEventListener("resize", resizeAll);
   (document.fonts ? document.fonts.ready : Promise.resolve()).then(() => FX.buildShapes());
   requestAnimationFrame(loop);
   if (!PREVIEW && Date.now() < bdayStart) go("countdown"); else go("loader");
+  Music.start();   // try to play the songs the moment the page opens; if the browser blocks it, the one-tap opener appears
 })();
 </script>
 </body>
